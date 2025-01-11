@@ -31,6 +31,7 @@ import { ElMessage } from 'element-plus';
 import { getPendingRequests, handleFriendRequest } from '../api/friend';
 import type { UserSearchResponse } from '../api/friend';
 
+const emit = defineEmits(['friendAccepted']);
 const requests = ref<UserSearchResponse[]>([]);
 
 const loadRequests = async () => {
@@ -47,6 +48,11 @@ const handleRequest = async (requestId: number, accept: boolean) => {
         await handleFriendRequest(requestId, accept);
         ElMessage.success(accept ? '已接受好友请求' : '已拒绝好友请求');
         requests.value = requests.value.filter(req => req.requestId !== requestId);
+        
+        // 如果接受了好友请求，触发事件通知父组件刷新好友列表
+        if (accept) {
+            emit('friendAccepted');
+        }
     } catch (error) {
         ElMessage.error('处理好友请求失败');
     }

@@ -1,20 +1,63 @@
 <template>
     <div class="chat-container">
         <el-container>
-            <el-aside width="200px">
+            <el-aside width="250px">
                 <div class="sidebar">
                     <div class="user-info">
-                        {{ userStore.username }}
+                        <span>{{ userStore.username }}</span>
                         <el-button type="text" @click="handleLogout">退出</el-button>
                     </div>
-                    <div class="contact-list">
-                        <div v-for="contact in contacts" 
-                             :key="contact.id"
-                             :class="['contact-item', { active: currentContact?.id === contact.id }]"
-                             @click="selectContact(contact)">
-                            {{ contact.name }}
-                        </div>
-                    </div>
+
+                    <!-- 好友列表 -->
+                    <el-collapse v-model="activeCollapse">
+                        <el-collapse-item name="friends">
+                            <template #title>
+                                <div class="collapse-title">
+                                    <span>我的好友</span>
+                                    <el-tag size="small" round>{{ friends.length }}</el-tag>
+                                </div>
+                            </template>
+                            <div class="contact-list">
+                                <div v-for="friend in friends" 
+                                     :key="friend.userId"
+                                     :class="['contact-item', { active: currentContact?.id === friend.userId }]"
+                                     @click="selectContact(friend)">
+                                    <el-avatar :size="32" :src="friend.avatarUrl">
+                                        {{ friend.nickname?.charAt(0) || friend.username.charAt(0) }}
+                                    </el-avatar>
+                                    <div class="contact-info">
+                                        <div class="contact-name">{{ friend.nickname || friend.username }}</div>
+                                        <div class="contact-status" :class="friend.status">{{ friend.status }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </el-collapse-item>
+
+                        <!-- 群组列表 -->
+                        <el-collapse-item name="groups">
+                            <template #title>
+                                <div class="collapse-title">
+                                    <span>我的群组</span>
+                                    <el-tag size="small" round>{{ groups.length }}</el-tag>
+                                </div>
+                            </template>
+                            <div class="contact-list">
+                                <div v-for="group in groups" 
+                                     :key="group.groupId"
+                                     :class="['contact-item', { active: currentContact?.id === group.groupId }]"
+                                     @click="selectContact(group)">
+                                    <el-avatar :size="32" :src="group.avatarUrl">
+                                        {{ group.name.charAt(0) }}
+                                    </el-avatar>
+                                    <div class="contact-info">
+                                        <div class="contact-name">{{ group.name }}</div>
+                                        <div class="contact-count">{{ group.memberCount }}人</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </el-collapse-item>
+                    </el-collapse>
+
                     <div class="sidebar-actions">
                         <el-button @click="showAddFriend = true" type="primary" plain>添加好友</el-button>
                         <el-button @click="showFriendRequests = true" type="info" plain>
@@ -57,17 +100,18 @@
 
         <!-- 好友请求对话框 -->
         <el-dialog v-model="showFriendRequests" title="好友请求" width="500px">
-            <friend-requests />
+            <friend-requests @friendAccepted="loadFriends" />
         </el-dialog>
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '../store/user';
 import { WebSocketClient } from '../utils/websocket';
-import { Message, MessageType } from '../types/message';
+import { Message } from '../types/message';
+import { Friend, Group } from '../types/contact';
 import { ElMessage } from 'element-plus';
 import AddFriend from '../components/AddFriend.vue';
 import FriendRequests from '../components/FriendRequests.vue';
@@ -77,34 +121,52 @@ const router = useRouter();
 const userStore = useUserStore();
 const wsClient = new WebSocketClient('ws://localhost:8888');
 
+const activeCollapse = ref(['friends', 'groups']);
+const friends = ref<Friend[]>([]);
+const groups = ref<Group[]>([]);
+const currentContact = ref<Friend | Group | null>(null);
 const messages = ref<Message[]>([]);
 const messageInput = ref('');
-const messageContainer = ref<HTMLElement>();
-
-const contacts = ref([
-    { id: '1', name: '用户1' },
-    { id: '2', name: '用户2' },
-    { id: '3', name: '群聊1', isGroup: true }
-]);
-
-const currentContact = ref(contacts.value[0]);
-
 const showAddFriend = ref(false);
 const showFriendRequests = ref(false);
 const pendingRequestCount = ref(0);
 
+// 加载好友列表
+const loadFriends = async () => {
+    try {
+        const response = await fetch('/api/friends/list', {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        const data = await response.json();
+        friends.value = data;
+    } catch (error) {
+        console.error('Failed to load friends:', error);
+        ElMessage.error('加载好友列表失败');
+    }
+};
+
+// 加载群组列表
+const loadGroups = async () => {
+    try {
+        const response = await fetch('/api/groups/list', {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        const data = await response.json();
+        groups.value = data;
+    } catch (error) {
+        console.error('Failed to load groups:', error);
+    }
+};
+
 onMounted(() => {
-    wsClient.connect(userStore.userId);
-    wsClient.onMessage((message) => {
-        messages.value.push(message);
-        scrollToBottom();
-    });
+    loadFriends();
+    loadGroups();
     loadPendingRequestCount();
     setInterval(loadPendingRequestCount, 30000);
-});
-
-onUnmounted(() => {
-    wsClient.disconnect();
 });
 
 const selectContact = (contact: any) => {
@@ -164,24 +226,82 @@ const loadPendingRequestCount = async () => {
 .sidebar {
     height: 100%;
     border-right: 1px solid #dcdfe6;
+    display: flex;
+    flex-direction: column;
 }
 
 .user-info {
     padding: 20px;
     border-bottom: 1px solid #dcdfe6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.collapse-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .contact-list {
-    padding: 10px;
+    padding: 4px;
 }
 
 .contact-item {
-    padding: 10px;
+    padding: 8px;
     cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.contact-item:hover {
+    background-color: #f5f7fa;
 }
 
 .contact-item.active {
     background-color: #ecf5ff;
+}
+
+.contact-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.contact-name {
+    font-size: 14px;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.contact-status {
+    font-size: 12px;
+    color: #909399;
+}
+
+.contact-status.online {
+    color: #67c23a;
+}
+
+.contact-status.offline {
+    color: #909399;
+}
+
+.contact-count {
+    font-size: 12px;
+    color: #909399;
+}
+
+.sidebar-actions {
+    margin-top: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .message-container {
@@ -220,12 +340,5 @@ const loadPendingRequestCount = async () => {
 .input-container {
     padding: 20px;
     border-top: 1px solid #dcdfe6;
-}
-
-.sidebar-actions {
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
 }
 </style> 
