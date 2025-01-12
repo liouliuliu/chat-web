@@ -5,17 +5,21 @@ import { ElMessage } from 'element-plus';
 import axios from 'axios';
 
 interface UserState {
-    userId: number;
+    userId: number | null;
     username: string;
-    token: string;
+    nickname: string | null;
+    avatarUrl: string | null;
+    token: string | null;
 }
 
 export const useUserStore = defineStore({
     id: 'user',
     state: (): UserState => ({
-        userId: 0,
+        userId: null,
         username: '',
-        token: localStorage.getItem('token') || ''
+        nickname: null,
+        avatarUrl: null,
+        token: null
     }),
 
     actions: {
@@ -110,6 +114,14 @@ export const useUserStore = defineStore({
                 this.logout();
                 return false;
             }
+        },
+
+        setUser(data: any) {
+            this.userId = data.userId;
+            this.username = data.username;
+            this.nickname = data.nickname;
+            this.avatarUrl = data.avatarUrl;
+            this.token = data.token;
         }
     },
 

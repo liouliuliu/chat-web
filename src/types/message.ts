@@ -14,9 +14,15 @@ export interface ChatMessage {
     timestamp: number;
 }
 
-export interface Message extends ChatMessage {
+export interface Message {
     id?: number;
     status?: MessageStatus;
+    type: MessageType;
+    fromUserId: number;
+    toUserId?: number;
+    groupId?: number;
+    content?: string;
+    createdAt: string;
 }
 
 export enum MessageStatus {

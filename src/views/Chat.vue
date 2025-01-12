@@ -4,7 +4,18 @@
             <el-aside width="250px">
                 <div class="sidebar">
                     <div class="user-info">
-                        <span>{{ userStore.username }}</span>
+                        <div class="user-profile-link" @click="goToProfile">
+                            <el-avatar 
+                                :size="40" 
+                                :src="userStore.avatarUrl || defaultAvatar"
+                            >
+                                {{ userStore.nickname?.charAt(0) || userStore.username.charAt(0) }}
+                            </el-avatar>
+                            <div class="user-details">
+                                <span class="username">{{ userStore.nickname || userStore.username }}</span>
+                                <span class="user-id">ID: {{ userStore.userId }}</span>
+                            </div>
+                        </div>
                         <el-button type="text" @click="handleLogout">退出</el-button>
                     </div>
 
@@ -83,10 +94,10 @@
                 <el-main>
                     <div class="message-container" ref="messageContainer">
                         <div v-for="msg in messages" 
-                             :key="msg.timestamp"
+                             :key="msg.id || msg.createdAt"
                              :class="['message', { 'message-self': msg.fromUserId === userStore.userId }]">
                             <div class="message-content">{{ msg.content }}</div>
-                            <div class="message-time">{{ formatTime(msg.timestamp) }}</div>
+                            <div class="message-time">{{ formatTime(msg.createdAt) }}</div>
                         </div>
                     </div>
                     <div class="input-container">
@@ -113,6 +124,13 @@
         <el-dialog v-model="showFriendRequests" title="好友请求" width="500px">
             <friend-requests @friendAccepted="loadFriends" />
         </el-dialog>
+
+        <!-- 添加用户资料对话框 -->
+        <user-profile
+          v-model:visible="showUserProfile"
+          :user-id="selectedUserId"
+          @send-message="handleSendMessageFromProfile"
+        />
     </div>
 </template>
 
@@ -127,6 +145,8 @@ import type { UserSearchResponse } from '../types/user';
 import { ElMessage } from 'element-plus';
 import AddFriend from '../components/AddFriend.vue';
 import FriendRequests from '../components/FriendRequests.vue';
+import UserProfile from './UserProfile.vue';
+import defaultAvatar from '../assets/default-avatar.svg';
 import { getFriendList, getGroupList, getPendingRequests } from '../api/friend';
 import { getHistoryMessages, getOfflineMessages } from '../api/message';
 
@@ -146,6 +166,8 @@ const showAddFriend = ref(false);
 const showFriendRequests = ref(false);
 const pendingRequestCount = ref(0);
 const messageContainer = ref<HTMLElement | null>(null);
+const showUserProfile = ref(false);
+const selectedUserId = ref<number | null>(null);
 
 // 加载好友列表
 const loadFriends = async () => {
@@ -276,7 +298,7 @@ const sendMessage = async () => {
         fromUserId: Number(userStore.userId),
         toUserId: currentContact.value.userId,
         content: messageInput.value.trim(),
-        timestamp: Date.now()
+        createdAt: new Date().toISOString()
     };
 
     try {
@@ -302,8 +324,14 @@ const handleLogout = () => {
     router.push('/');
 };
 
-const formatTime = (timestamp: number) => {
-    return new Date(timestamp).toLocaleTimeString();
+const formatTime = (dateStr: string) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return date.toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
 };
 
 const scrollToBottom = () => {
@@ -328,8 +356,7 @@ const handleCommand = (command: string, friend: Friend) => {
             selectContact(friend);
             break;
         case 'profile':
-            // TODO: 查看好友资料
-            ElMessage.info('功能开发中...');
+            showProfile(friend.userId);
             break;
         case 'delete':
             // TODO: 删除好友
@@ -338,11 +365,25 @@ const handleCommand = (command: string, friend: Friend) => {
     }
 };
 
+const showProfile = (userId: number) => {
+    selectedUserId.value = userId;
+    showUserProfile.value = true;
+};
+
+// 处理从用户资料卡片发起聊天
+const handleSendMessageFromProfile = (user: Friend) => {
+    selectContact(user);
+};
+
 // 确保在组件卸载时断开WebSocket连接
 onUnmounted(() => {
     console.log('Chat component unmounting, disconnecting WebSocket...');
     wsClient.disconnect();
 });
+
+const goToProfile = () => {
+    router.push('/profile');
+};
 </script>
 
 <style scoped>
@@ -363,6 +404,32 @@ onUnmounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+
+.user-profile-link {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+}
+
+.user-profile-link:hover {
+    opacity: 0.8;
+}
+
+.user-details {
+    display: flex;
+    flex-direction: column;
+}
+
+.username {
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.user-id {
+    font-size: 12px;
+    color: #909399;
 }
 
 .collapse-title {

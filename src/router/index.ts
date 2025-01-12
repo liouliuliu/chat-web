@@ -17,6 +17,11 @@ const router = createRouter({
             path: '/chat',
             component: () => import('../views/Chat.vue'),
             meta: { requiresAuth: true }
+        },
+        {
+            path: '/profile',
+            component: () => import('../views/Profile.vue'),
+            meta: { requiresAuth: true }
         }
     ]
 });
