@@ -18,18 +18,29 @@
                                 </div>
                             </template>
                             <div class="contact-list">
-                                <div v-for="friend in friends" 
-                                     :key="friend.userId"
-                                     :class="['contact-item', { active: currentContact?.id === friend.userId }]"
-                                     @click="selectContact(friend)">
-                                    <el-avatar :size="32" :src="friend.avatarUrl">
-                                        {{ friend.nickname?.charAt(0) || friend.username.charAt(0) }}
-                                    </el-avatar>
-                                    <div class="contact-info">
-                                        <div class="contact-name">{{ friend.nickname || friend.username }}</div>
-                                        <div class="contact-status" :class="friend.status">{{ friend.status }}</div>
+                                <el-dropdown 
+                                    v-for="friend in friends" 
+                                    :key="friend.userId"
+                                    trigger="click"
+                                    @command="handleCommand($event, friend)"
+                                >
+                                    <div :class="['contact-item', { active: currentContact && isFriend(currentContact) && currentContact.userId === friend.userId }]">
+                                        <el-avatar :size="32" :src="friend.avatarUrl">
+                                            {{ friend.nickname?.charAt(0) || friend.username.charAt(0) }}
+                                        </el-avatar>
+                                        <div class="contact-info">
+                                            <div class="contact-name">{{ friend.nickname || friend.username }}</div>
+                                            <div class="contact-status" :class="friend.status">{{ friend.status }}</div>
+                                        </div>
                                     </div>
-                                </div>
+                                    <template #dropdown>
+                                        <el-dropdown-menu>
+                                            <el-dropdown-item command="chat">发送消息</el-dropdown-item>
+                                            <el-dropdown-item command="profile">查看资料</el-dropdown-item>
+                                            <el-dropdown-item command="delete" divided>删除好友</el-dropdown-item>
+                                        </el-dropdown-menu>
+                                    </template>
+                                </el-dropdown>
                             </div>
                         </el-collapse-item>
 
@@ -44,7 +55,7 @@
                             <div class="contact-list">
                                 <div v-for="group in groups" 
                                      :key="group.groupId"
-                                     :class="['contact-item', { active: currentContact?.id === group.groupId }]"
+                                     :class="['contact-item', { active: currentContact && isGroup(currentContact) && currentContact.groupId === group.groupId }]"
                                      @click="selectContact(group)">
                                     <el-avatar :size="32" :src="group.avatarUrl">
                                         {{ group.name.charAt(0) }}
@@ -82,7 +93,7 @@
                         <el-input v-model="messageInput" 
                                  type="textarea" 
                                  :rows="3"
-                                 @keyup.enter="sendMessage" />
+                                 @keyup.enter.prevent="sendMessage" />
                         <el-button type="primary" @click="sendMessage">发送</el-button>
                     </div>
                 </el-main>
@@ -106,41 +117,47 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, nextTick, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '../store/user';
 import { WebSocketClient } from '../utils/websocket';
-import { Message } from '../types/message';
-import { Friend, Group } from '../types/contact';
+import { Message, MessageType } from '../types/message';
+import { Friend, Group, Contact, isFriend, isGroup } from '../types/contact';
+import type { UserSearchResponse } from '../types/user';
 import { ElMessage } from 'element-plus';
 import AddFriend from '../components/AddFriend.vue';
 import FriendRequests from '../components/FriendRequests.vue';
-import { getPendingRequests } from '../api/friend';
+import { getFriendList, getGroupList, getPendingRequests } from '../api/friend';
+import { getHistoryMessages, getOfflineMessages } from '../api/message';
 
 const router = useRouter();
 const userStore = useUserStore();
-const wsClient = new WebSocketClient('ws://localhost:8888');
+const wsUrl = `ws://${window.location.hostname}:9000/ws`;
+const wsClient = new WebSocketClient(wsUrl);
+let wsConnected = ref(false);
 
 const activeCollapse = ref(['friends', 'groups']);
 const friends = ref<Friend[]>([]);
 const groups = ref<Group[]>([]);
-const currentContact = ref<Friend | Group | null>(null);
+const currentContact = ref<Contact | null>(null);
 const messages = ref<Message[]>([]);
 const messageInput = ref('');
 const showAddFriend = ref(false);
 const showFriendRequests = ref(false);
 const pendingRequestCount = ref(0);
+const messageContainer = ref<HTMLElement | null>(null);
 
 // 加载好友列表
 const loadFriends = async () => {
     try {
-        const response = await fetch('/api/friends/list', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-        const data = await response.json();
-        friends.value = data;
+        const response = await getFriendList();
+        friends.value = response.data.map(user => ({
+            userId: user.userId,
+            username: user.username,
+            nickname: user.nickname,
+            avatarUrl: user.avatarUrl,
+            status: 'offline'
+        }));
     } catch (error) {
         console.error('Failed to load friends:', error);
         ElMessage.error('加载好友列表失败');
@@ -150,46 +167,133 @@ const loadFriends = async () => {
 // 加载群组列表
 const loadGroups = async () => {
     try {
-        const response = await fetch('/api/groups/list', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-        const data = await response.json();
-        groups.value = data;
+        const response = await getGroupList();
+        groups.value = response.data;
     } catch (error) {
         console.error('Failed to load groups:', error);
     }
 };
 
-onMounted(() => {
+// 在 script setup 中添加消息处理相关的函数
+const handleOfflineMessages = (messages: Message[], contact: Contact | null) => {
+    if (!contact || !isFriend(contact)) return [];
+    return messages.filter(msg => 
+        msg.fromUserId === contact.userId ||
+        msg.toUserId === contact.userId
+    );
+};
+
+const isRelevantMessage = (message: Message, contact: Contact | null): boolean => {
+    if (!contact || !isFriend(contact)) return false;
+    return message.fromUserId === contact.userId || 
+           message.toUserId === contact.userId;
+};
+
+onMounted(async () => {
+    console.log('Chat component mounted');
+    console.log('User store state:', userStore.$state);
+    
+    const userId = Number(userStore.userId);
+    console.log('Current user ID:', userId);
+    
+    if (!userId || isNaN(userId)) {
+        console.error('Invalid user ID:', userId);
+        ElMessage.error('用户信息无效，请重新登录');
+        router.push('/login');
+        return;
+    }
+    
+    try {
+        // 连接 WebSocket
+        await wsClient.connect(userId);
+        wsConnected.value = true;
+        console.log('WebSocket connected successfully');
+
+        // 加载离线消息
+        const offlineMessages = await getOfflineMessages();
+        if (offlineMessages.data.length > 0) {
+            ElMessage.info(`您有 ${offlineMessages.data.length} 条未读消息`);
+            // 如果当前已选中联系人，直接显示相关消息
+            const relevantMessages = handleOfflineMessages(offlineMessages.data, currentContact.value);
+            if (relevantMessages.length > 0) {
+                messages.value.push(...relevantMessages);
+            }
+        }
+    } catch (error) {
+        console.error('Failed to connect WebSocket:', error);
+        ElMessage.error('聊天服务连接失败，请刷新页面重试');
+    }
+
     loadFriends();
     loadGroups();
     loadPendingRequestCount();
-    setInterval(loadPendingRequestCount, 30000);
+    
+    // 监听消息
+    wsClient.onMessage((message: Message) => {
+        console.log('Received message:', message);
+        if (isRelevantMessage(message, currentContact.value)) {
+            messages.value.push(message);
+            nextTick(() => {
+                scrollToBottom();
+            });
+        } else {
+            ElMessage.info(`收到来自 ${message.fromUserId} 的新消息`);
+        }
+    });
 });
 
-const selectContact = (contact: any) => {
+const selectContact = async (contact: Contact) => {
     currentContact.value = contact;
     messages.value = []; // 清空消息
+    
+    if (isFriend(contact)) {
+        try {
+            // 加载历史消息
+            const response = await getHistoryMessages(contact.userId);
+            messages.value = response.data;
+            nextTick(() => {
+                scrollToBottom();
+            });
+        } catch (error) {
+            console.error('Failed to load history messages:', error);
+            ElMessage.error('加载历史消息失败');
+        }
+    }
 };
 
-const sendMessage = () => {
-    if (!messageInput.value.trim()) {
+const sendMessage = async () => {
+    if (!messageInput.value.trim() || !currentContact.value || !isFriend(currentContact.value)) {
+        return;
+    }
+
+    if (!wsConnected.value) {
+        ElMessage.warning('正在连接聊天服务，请稍后重试');
         return;
     }
 
     const message: Message = {
-        type: currentContact.value.isGroup ? MessageType.GROUP_MSG : MessageType.PRIVATE_MSG,
-        fromUserId: userStore.userId,
-        toUserId: currentContact.value.isGroup ? undefined : currentContact.value.id,
-        groupId: currentContact.value.isGroup ? currentContact.value.id : undefined,
-        content: messageInput.value,
+        type: MessageType.PRIVATE_MSG,
+        fromUserId: Number(userStore.userId),
+        toUserId: currentContact.value.userId,
+        content: messageInput.value.trim(),
         timestamp: Date.now()
     };
 
-    wsClient.sendMessage(message);
-    messageInput.value = '';
+    try {
+        console.log('Preparing to send message:', message);
+        wsClient.sendMessage(message);
+        console.log('Message sent successfully');
+        
+        messages.value.push(message);
+        messageInput.value = '';
+        
+        nextTick(() => {
+            scrollToBottom();
+        });
+    } catch (error) {
+        console.error('Failed to send message:', error);
+        ElMessage.error('发送消息失败: ' + (error instanceof Error ? error.message : String(error)));
+    }
 };
 
 const handleLogout = () => {
@@ -216,6 +320,29 @@ const loadPendingRequestCount = async () => {
         console.error('Failed to load pending requests:', error);
     }
 };
+
+// 处理好友操作命令
+const handleCommand = (command: string, friend: Friend) => {
+    switch (command) {
+        case 'chat':
+            selectContact(friend);
+            break;
+        case 'profile':
+            // TODO: 查看好友资料
+            ElMessage.info('功能开发中...');
+            break;
+        case 'delete':
+            // TODO: 删除好友
+            ElMessage.warning('确定要删除该好友吗？');
+            break;
+    }
+};
+
+// 确保在组件卸载时断开WebSocket连接
+onUnmounted(() => {
+    console.log('Chat component unmounting, disconnecting WebSocket...');
+    wsClient.disconnect();
+});
 </script>
 
 <style scoped>
@@ -255,6 +382,7 @@ const loadPendingRequestCount = async () => {
     display: flex;
     align-items: center;
     gap: 12px;
+    width: 100%;
 }
 
 .contact-item:hover {
@@ -340,5 +468,20 @@ const loadPendingRequestCount = async () => {
 .input-container {
     padding: 20px;
     border-top: 1px solid #dcdfe6;
+}
+
+:deep(.el-dropdown) {
+    display: block;
+    width: 100%;
+}
+
+:deep(.el-dropdown-menu__item) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+:deep(.el-dropdown-menu__item.is-disabled) {
+    cursor: not-allowed;
 }
 </style> 

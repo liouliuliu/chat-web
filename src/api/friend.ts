@@ -1,26 +1,26 @@
 import request from '../utils/request';
+import type { UserSearchResponse } from '../types/user';
 
-export interface UserSearchResponse {
-    userId: number;
-    username: string;
-    nickname: string;
-    avatarUrl: string;
-    friendshipStatus: string | null;
-    requestId?: number;
-}
+export const getFriendList = () => {
+  return request.get<UserSearchResponse[]>('/friends/list');
+};
+
+export const getGroupList = () => {
+  return request.get('/groups/list');
+};
 
 export const searchUser = (username: string) => {
-    return request.get<UserSearchResponse>(`/friends/search?username=${username}`);
+  return request.get<UserSearchResponse>(`/friends/search?username=${username}`);
 };
 
 export const sendFriendRequest = (username: string) => {
-    return request.post('/friends/request', { username });
+  return request.post('/friends/request', { username });
 };
 
 export const getPendingRequests = () => {
-    return request.get<UserSearchResponse[]>('/friends/requests');
+  return request.get<UserSearchResponse[]>('/friends/requests');
 };
 
 export const handleFriendRequest = (requestId: number, accept: boolean) => {
-    return request.post(`/friends/requests/${requestId}/handle?accept=${accept}`);
+  return request.post(`/friends/requests/${requestId}/handle?accept=${accept}`);
 }; 

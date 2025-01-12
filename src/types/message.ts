@@ -2,15 +2,27 @@ export enum MessageType {
     CONNECT = 'CONNECT',
     PRIVATE_MSG = 'PRIVATE_MSG',
     GROUP_MSG = 'GROUP_MSG',
-    SYSTEM_MSG = 'SYSTEM_MSG',
-    HEARTBEAT = 'HEARTBEAT'
+    SYSTEM_MSG = 'SYSTEM_MSG'
 }
 
-export interface Message {
+export interface ChatMessage {
     type: MessageType;
-    fromUserId: string;
-    toUserId?: string;
-    groupId?: string;
-    content: string;
+    fromUserId: number;
+    toUserId?: number;
+    groupId?: number;
+    content?: string;
     timestamp: number;
+}
+
+export interface Message extends ChatMessage {
+    id?: number;
+    status?: MessageStatus;
+}
+
+export enum MessageStatus {
+    UNSENT = 'UNSENT',
+    SENT = 'SENT',
+    DELIVERED = 'DELIVERED',
+    READ = 'READ',
+    FAILED = 'FAILED'
 } 

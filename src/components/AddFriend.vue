@@ -45,7 +45,7 @@
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { searchUser, sendFriendRequest } from '../api/friend';
-import type { UserSearchResponse } from '../api/friend';
+import type { UserSearchResponse } from '../types/user';
 
 const searchUsername = ref('');
 const searchResult = ref<UserSearchResponse | null>(null);

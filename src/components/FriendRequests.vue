@@ -29,7 +29,7 @@
 import { ref, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { getPendingRequests, handleFriendRequest } from '../api/friend';
-import type { UserSearchResponse } from '../api/friend';
+import type { UserSearchResponse } from '../types/user';
 
 const emit = defineEmits(['friendAccepted']);
 const requests = ref<UserSearchResponse[]>([]);

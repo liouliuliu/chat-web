@@ -1,20 +1,14 @@
 import request from '../utils/request';
-
-export interface LoginRequest {
-    username: string;
-    password: string;
-}
-
-export interface RegisterRequest {
-    username: string;
-    password: string;
-    nickname?: string;
-}
+import type { LoginRequest, RegisterRequest, LoginResponse } from '../types/user';
 
 export const login = (data: LoginRequest) => {
-    return request.post('/users/login', data);
+    return request.post<LoginResponse>('/users/login', data);
 };
 
 export const register = (data: RegisterRequest) => {
-    return request.post('/users/register', data);
+    return request.post<void>('/users/register', data);
+};
+
+export const logout = () => {
+    return request.post<void>('/users/logout');
 }; 
